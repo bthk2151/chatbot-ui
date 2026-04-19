@@ -14,7 +14,7 @@ type Attachment = {
 
 type Message = {
     id: string;
-    role: "user" | "assistant";
+    role: "user" | "bot";
     content: string;
     attachments: Attachment[];
     timestamp: Date;
@@ -268,70 +268,106 @@ function ChatBubble({ message, user }: { message: Message; user: UserProps }) {
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function ChatClient({ user, signOutAction }: Props) {
-    const [messages, setMessages] = useState<Message[]>(() => [
-        {
-            id: "welcome",
-            role: "assistant",
-            content: `Hi${user.name ? ", " + user.name.split(" ")[0] : ""}! 👋 I'm your AI assistant. How can I help you today? You can also attach files to your messages.`,
-            attachments: [],
-            timestamp: new Date(),
-        },
-    ]);
+    const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState("");
-    const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+    const [uploadedFiles, setUploadedFiles] = useState<Attachment[]>([]);
+    const [isDraggingOver, setIsDraggingOver] = useState(false);
+    const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
     const [isLoading, setIsLoading] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Auto-scroll to bottom on new messages
+    // auto scroll to bottom whenever new message is added
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, isLoading]);
 
+    // init with useEffect to ensure local time is used
+    useEffect(() => {
+        setMessages([
+            {
+                id: "welcome",
+                role: "bot",
+                content: `Hi${user.name ? ", " + user.name.split(" ")[0] : ""}! 👋 I'm your AI assistant. How can I help you today? Attach files before sending your messages.`,
+                attachments: [],
+                timestamp: new Date(),
+            },
+        ]);
+    }, [user.name]);
+
     function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-        const files = Array.from(e.target.files ?? []);
-        setPendingFiles((prev) => [...prev, ...files]);
+        addFiles(Array.from(e.target.files ?? []));
         e.target.value = "";
     }
 
-    function removePendingFile(idx: number) {
-        setPendingFiles((prev) => prev.filter((_, i) => i !== idx));
+    function addFiles(files: File[] | FileList) {
+        const arr = Array.from(files ?? []);
+        if (arr.length === 0) return;
+        const newFiles: Attachment[] = arr.map((f) => ({
+            id: crypto.randomUUID(),
+            name: f.name,
+            size: f.size,
+            type: f.type,
+        }));
+        setUploadedFiles((oldFiles) => [...oldFiles, ...newFiles]);
+        // auto select new upload files
+        setSelectedFileIds((oldFiles) => {
+            const updatedFiles = new Set(oldFiles);
+            newFiles.forEach((a) => updatedFiles.add(a.id));
+            return updatedFiles;
+        });
+    }
+
+    function removeUploadedFile(id: string) {
+        setUploadedFiles((oldFiles) => oldFiles.filter((f) => f.id !== id));
+        setSelectedFileIds((oldFiles) => {
+            const updatedFiles = new Set(oldFiles);
+            updatedFiles.delete(id);
+            return updatedFiles;
+        });
+    }
+
+    function toggleSelectFile(id: string) {
+        setSelectedFileIds((oldFiles) => {
+            const updatedFiles = new Set(oldFiles);
+            if (updatedFiles.has(id)) updatedFiles.delete(id);
+            else updatedFiles.add(id);
+            return updatedFiles;
+        });
     }
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         const trimmed = input.trim();
-        if (!trimmed && pendingFiles.length === 0) return;
+        if (!trimmed && selectedFileIds.size === 0) return;
 
-        const userMsg: Message = {
+        const userMessage: Message = {
             id: crypto.randomUUID(),
             role: "user",
             content: trimmed,
-            attachments: pendingFiles.map((f) => ({
-                id: crypto.randomUUID(),
-                name: f.name,
-                size: f.size,
-                type: f.type,
-            })),
+            attachments: uploadedFiles
+                .filter((f) => selectedFileIds.has(f.id))
+                .map((f) => ({ id: f.id, name: f.name, size: f.size, type: f.type })),
             timestamp: new Date(),
         };
 
-        setMessages((prev) => [...prev, userMsg]);
+        setMessages((oldMessages) => [...oldMessages, userMessage]);
         setInput("");
-        setPendingFiles([]);
+        // keep uploadedFiles for future reference; just clear selection
+        setSelectedFileIds(new Set());
         setIsLoading(true);
 
         // Placeholder — replace with your AI API call
         setTimeout(() => {
-            const reply: Message = {
+            const botResponse: Message = {
                 id: crypto.randomUUID(),
-                role: "assistant",
-                content: `I received your message${userMsg.attachments.length > 0 ? ` along with ${userMsg.attachments.length} file${userMsg.attachments.length > 1 ? "s" : ""}` : ""}. This is a placeholder — connect me to an AI backend to get real answers!`,
+                role: "bot",
+                content: `I received your message${userMessage.attachments.length > 0 ? ` along with ${userMessage.attachments.length} file${userMessage.attachments.length > 1 ? "s" : ""}` : ""}. This is a placeholder — connect me to an AI backend to get real answers!`,
                 attachments: [],
                 timestamp: new Date(),
             };
-            setMessages((prev) => [...prev, reply]);
+            setMessages((oldMessages) => [...oldMessages, botResponse]);
             setIsLoading(false);
         }, 1200);
     }
@@ -365,104 +401,129 @@ export default function ChatClient({ user, signOutAction }: Props) {
             </header>
 
             {/* ── Messages ── */}
-            <main className="flex-1 overflow-y-auto">
-                <div className="mx-auto max-w-3xl px-4 py-6 space-y-4">
-                    {messages.map((msg) => (
-                        <ChatBubble key={msg.id} message={msg} user={user} />
-                    ))}
-
-                    {/* Typing indicator */}
-                    {isLoading && (
-                        <div className="flex items-end gap-2.5">
-                            <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-zinc-900 dark:bg-white shadow">
-                                <svg
-                                    className="h-4 w-4 text-white dark:text-zinc-900"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={2}
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-3 3-3-3z"
-                                    />
-                                </svg>
+            <main className="flex-1 overflow-hidden">
+                <div className="mx-auto max-w-5xl px-4 py-6 flex gap-6 h-full">
+                    {/* Files sidebar */}
+                    <aside className="w-72 flex-shrink-0 sticky top-6 self-start">
+                        <div
+                            className={`bg-white dark:bg-zinc-900 rounded-2xl p-3 shadow ${isDraggingOver ? "ring-2 ring-emerald-400/60" : ""
+                                }`}
+                            onDragEnter={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setIsDraggingOver(true);
+                            }}
+                            onDragOver={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                // required to allow drop
+                                e.dataTransfer.dropEffect = "copy";
+                                setIsDraggingOver(true);
+                            }}
+                            onDragLeave={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setIsDraggingOver(false);
+                            }}
+                            onDrop={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setIsDraggingOver(false);
+                                const dt = e.dataTransfer;
+                                if (dt?.files && dt.files.length > 0) {
+                                    addFiles(dt.files);
+                                }
+                            }}
+                        >
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="text-sm font-semibold">Files</div>
+                                <div className="text-xs text-zinc-400">{uploadedFiles.length}</div>
                             </div>
-                            <div className="bg-white dark:bg-zinc-800 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
-                                <div className="flex gap-1 items-center h-4">
-                                    <span
-                                        className="h-2 w-2 rounded-full bg-zinc-400 animate-bounce"
-                                        style={{ animationDelay: "0ms" }}
-                                    />
-                                    <span
-                                        className="h-2 w-2 rounded-full bg-zinc-400 animate-bounce"
-                                        style={{ animationDelay: "150ms" }}
-                                    />
-                                    <span
-                                        className="h-2 w-2 rounded-full bg-zinc-400 animate-bounce"
-                                        style={{ animationDelay: "300ms" }}
-                                    />
+                            {uploadedFiles.length === 0 ? (
+                                <p className="text-xs text-zinc-500">No files uploaded — use the attach button.</p>
+                            ) : (
+                                <div className="flex flex-col gap-2 max-h-60 overflow-auto">
+                                    {uploadedFiles.map((f) => (
+                                        <div key={f.id} className="flex items-center gap-2">
+                                            <input
+                                                id={`sel-${f.id}`}
+                                                type="checkbox"
+                                                checked={selectedFileIds.has(f.id)}
+                                                onChange={() => toggleSelectFile(f.id)}
+                                                className="h-4 w-4"
+                                            />
+                                            <div className="min-w-0 flex-1">
+                                                <div className="text-sm truncate">{f.name}</div>
+                                                <div className="text-xs text-zinc-400">{formatBytes(f.size)}</div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => removeUploadedFile(f.id)}
+                                                className="text-zinc-400 hover:text-zinc-600 ml-2"
+                                                aria-label={`Remove ${f.name}`}
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    ))}
                                 </div>
-                            </div>
+                            )}
+                            <div className="mt-3 text-xs text-zinc-500">Selected files will be included in the next message.</div>
                         </div>
-                    )}
+                    </aside>
 
-                    <div ref={messagesEndRef} />
+                    <div className="flex-1 flex flex-col">
+                        <div className="flex-1 overflow-y-auto space-y-4">
+                            {messages.map((msg) => (
+                                <ChatBubble key={msg.id} message={msg} user={user} />
+                            ))}
+
+                            {/* Typing indicator */}
+                            {isLoading && (
+                                <div className="flex items-end gap-2.5">
+                                    <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-zinc-900 dark:bg-white shadow">
+                                        <svg
+                                            className="h-4 w-4 text-white dark:text-zinc-900"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={2}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-3 3-3-3z"
+                                            />
+                                        </svg>
+                                    </div>
+                                    <div className="bg-white dark:bg-zinc-800 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
+                                        <div className="flex gap-1 items-center h-4">
+                                            <span
+                                                className="h-2 w-2 rounded-full bg-zinc-400 animate-bounce"
+                                                style={{ animationDelay: "0ms" }}
+                                            />
+                                            <span
+                                                className="h-2 w-2 rounded-full bg-zinc-400 animate-bounce"
+                                                style={{ animationDelay: "150ms" }}
+                                            />
+                                            <span
+                                                className="h-2 w-2 rounded-full bg-zinc-400 animate-bounce"
+                                                style={{ animationDelay: "300ms" }}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div ref={messagesEndRef} />
+                        </div>
+                    </div>
                 </div>
             </main>
 
             {/* ── Input bar ── */}
             <div className="flex-none bg-white dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800 px-4 py-3">
-                <div className="mx-auto max-w-3xl">
-                    {/* Pending file chips */}
-                    {pendingFiles.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mb-2">
-                            {pendingFiles.map((f, i) => (
-                                <div
-                                    key={i}
-                                    className="flex items-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-xs text-zinc-700 dark:text-zinc-300"
-                                >
-                                    <svg
-                                        className="h-3.5 w-3.5 shrink-0 text-zinc-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-                                        />
-                                    </svg>
-                                    <span className="max-w-[150px] truncate">{f.name}</span>
-                                    <span className="text-zinc-400">({formatBytes(f.size)})</span>
-                                    <button
-                                        type="button"
-                                        onClick={() => removePendingFile(i)}
-                                        className="ml-0.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
-                                        aria-label={`Remove ${f.name}`}
-                                    >
-                                        <svg
-                                            className="h-3.5 w-3.5"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            strokeWidth={2.5}
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M6 18L18 6M6 6l12 12"
-                                            />
-                                        </svg>
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
+                <div className="mx-auto max-w-5xl">
                     <form onSubmit={handleSubmit} className="flex items-center gap-2">
                         {/* Hidden file input */}
                         <input
@@ -507,7 +568,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
                         {/* Send button */}
                         <button
                             type="submit"
-                            disabled={isLoading || (!input.trim() && pendingFiles.length === 0)}
+                            disabled={isLoading || (!input.trim() && selectedFileIds.size === 0)}
                             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 shadow-sm transition-all hover:bg-zinc-700 dark:hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
                             aria-label="Send message"
                         >
