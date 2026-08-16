@@ -2,7 +2,7 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 
 async function login(id: string, name: string) {
-    const response = await fetch(`${process.env.API_URL}/users/login`, {
+    const response = await fetch(`${process.env.API_BASE_URL}/users/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, name }),
