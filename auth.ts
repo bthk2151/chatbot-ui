@@ -10,7 +10,7 @@ async function login(id: string, name: string) {
     });
 
     if (!response.ok) {
-        throw new Error(`RAG API login failed with status ${response.status}`);
+        throw new Error(`Login failed with status ${response.status}`);
     }
 }
 
