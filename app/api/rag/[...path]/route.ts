@@ -1,13 +1,33 @@
 import { auth } from "@/auth";
 
-const ALLOWED_PATHS = new Set(["health", "", "files/upload", "users/login", "chat/query", "chat/conversations"]);
+const ROUTE_METHODS: Record<string, readonly string[]> = {
+  "": ["GET"],
+  health: ["GET"],
+  "files/upload": ["POST"],
+  "files/processing-status": ["GET"],
+  "users/login": ["POST"],
+  "chat/query": ["POST"],
+  "chat/conversations": ["GET"],
+};
+
+function allowedMethods(apiPath: string): readonly string[] | undefined {
+  if (/^chat\/conversations\/\d+$/.test(apiPath)) return ["GET", "DELETE"]; // for dynamic conversation ID paths
+  return ROUTE_METHODS[apiPath];
+}
 
 async function proxy(request: Request, context: { params: Promise<{ path: string[] }> }) {
   const session = await auth();
   if (!session?.user?.email) return Response.json({ detail: "Unauthorized" }, { status: 401 });
   const { path } = await context.params;
   const apiPath = path.join("/");
-  if (!ALLOWED_PATHS.has(apiPath) && !/^chat\/conversations\/\d+$/.test(apiPath)) return Response.json({ detail: "Unsupported API path" }, { status: 404 });
+  const methods = allowedMethods(apiPath);
+  if (!methods) return Response.json({ detail: "Unsupported API path" }, { status: 404 });
+  if (!methods.includes(request.method)) {
+    return Response.json(
+      { detail: "Unsupported API method" },
+      { status: 405, headers: { Allow: methods.join(", ") } },
+    );
+  }
   const incomingUrl = new URL(request.url);
   const headers = new Headers();
   const contentType = request.headers.get("content-type");
