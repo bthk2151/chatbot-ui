@@ -17,8 +17,8 @@ export default async function ChatPage() {
     return (
         <ChatClient
             user={{
-                name: user?.name ?? null,
-                email: user?.email ?? null,
+                name: user!.name!,
+                email: user!.email!,
                 image: user?.image ?? null,
             }}
             signOutAction={handleSignOut}
