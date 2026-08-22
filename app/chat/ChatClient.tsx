@@ -2,28 +2,19 @@
 
 import { useRef, useState, useEffect } from "react";
 import Image from "next/image";
+import { ragApi } from "@/lib/rag-api";
+import { AttachmentList } from "./components/AttachmentList";
+import { formatBytes, formatTime } from "./formatters";
+import type { Attachment, MessageAttachment, UserProps } from "./types";
 
 // ── Types ──────────────────────────────────────────────────────────────────
-
-type Attachment = {
-    id: string;
-    name: string;
-    size: number;
-    type: string;
-};
 
 type Message = {
     id: string;
     role: "user" | "bot";
     content: string;
-    attachments: Attachment[];
+    attachments: MessageAttachment[];
     timestamp: Date;
-};
-
-type UserProps = {
-    name: string | null;
-    email: string | null;
-    image: string | null;
 };
 
 type Props = {
@@ -33,14 +24,15 @@ type Props = {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function formatBytes(bytes: number) {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatTime(date: Date) {
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+function statusFromApi(status: string): Attachment["status"] {
+    switch (status.toLowerCase()) {
+        case "completed":
+            return "completed";
+        case "failed":
+            return "failed";
+        default:
+            return "processing";
+    }
 }
 
 // ── Profile card (top-right dropdown) ─────────────────────────────────────
@@ -54,7 +46,7 @@ function ProfileCard({
 }) {
     const [open, setOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
-    const displayName = user.name ?? "You";
+    const displayName = user.name;
     const initials = displayName[0]?.toUpperCase() ?? "?";
 
     useEffect(() => {
@@ -124,7 +116,7 @@ function ProfileCard({
                                     {displayName}
                                 </p>
                                 <p className="text-sm text-zinc-500 dark:text-zinc-400 truncate">
-                                    {user.email ?? "—"}
+                                    {user.email}
                                 </p>
                             </div>
                         </div>
@@ -162,7 +154,7 @@ function ProfileCard({
 
 function ChatBubble({ message, user }: { message: Message; user: UserProps }) {
     const isUser = message.role === "user";
-    const displayName = user.name ?? "You";
+    const displayName = user.name;
     const initials = displayName[0]?.toUpperCase() ?? "?";
 
     return (
@@ -277,6 +269,8 @@ export default function ChatClient({ user, signOutAction }: Props) {
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const pollingFileIds = useRef(new Set<string>());
+    const selectedReadyFiles = uploadedFiles.filter((file) => selectedFileIds.has(file.id) && file.isProcessed);
 
     // auto scroll to bottom whenever new message is added
     useEffect(() => {
@@ -289,12 +283,51 @@ export default function ChatClient({ user, signOutAction }: Props) {
             {
                 id: "welcome",
                 role: "bot",
-                content: `Hi${user.name ? ", " + user.name.split(" ")[0] : ""}! 👋 I'm your AI assistant. How can I help you today? Attach files before sending your messages.`,
+                content: `Hi, ${user.name.split(" ")[0]}! 👋 I'm your AI assistant. How can I help you today? Attach files before sending your messages.`,
                 attachments: [],
                 timestamp: new Date(),
             },
         ]);
     }, [user.name]);
+
+    // Each processing file is polled independently. The effect is reset as files
+    // finish, fail, are removed, or are added, so completed files are never polled.
+    useEffect(() => {
+        const processingFiles = uploadedFiles.filter((file) => file.status === "processing");
+        if (processingFiles.length === 0) return;
+
+        let cancelled = false;
+        const pollProcessingFiles = async () => {
+            await Promise.all(processingFiles.map(async (file) => {
+                if (pollingFileIds.current.has(file.id)) return; // if already polling, no need to start another poll
+                pollingFileIds.current.add(file.id);
+                try {
+                    const response = await ragApi.getFilesProcessingStatus(user.email, file.id);
+                    if (cancelled) return;
+                    const status = statusFromApi(response.processing_status);
+                    const isProcessed = status === "completed";
+                    const error = status === "failed" ? "Processing failed." : undefined;
+                    setUploadedFiles((files) => {
+                        const currentFile = files.find((item) => item.id === file.id);
+                        if (!currentFile || (currentFile.status === status && currentFile.isProcessed === isProcessed && currentFile.error === error)) return files;
+                        return files.map((item) => item.id === file.id ? { ...item, status, isProcessed, error } : item);
+                    });
+                } catch {
+                    // A transient status-check failure should not make the file unusable.
+                    // The next ten-second poll will retry it.
+                } finally {
+                    pollingFileIds.current.delete(file.id);
+                }
+            }));
+        };
+
+        void pollProcessingFiles();
+        const intervalId = window.setInterval(() => void pollProcessingFiles(), 10_000);
+        return () => { // clean up function to make sure polling stops when component unmounts or dependencies change
+            cancelled = true;
+            window.clearInterval(intervalId);
+        };
+    }, [uploadedFiles, user.email]);
 
     function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
         addFiles(Array.from(e.target.files ?? []));
@@ -304,18 +337,43 @@ export default function ChatClient({ user, signOutAction }: Props) {
     function addFiles(files: File[] | FileList) {
         const arr = Array.from(files ?? []);
         if (arr.length === 0) return;
-        const newFiles: Attachment[] = arr.map((f) => ({
-            id: crypto.randomUUID(),
-            name: f.name,
-            size: f.size,
-            type: f.type,
-        }));
+
+        // create new Attachment objects
+        const newFiles: Attachment[] = arr.map((file) => {
+            return {
+                id: crypto.randomUUID(),
+                name: file.name,
+                size: file.size,
+                type: file.type,
+                status: "uploading",
+                isProcessed: false,
+            };
+        });
+
+        // add new files to state
         setUploadedFiles((oldFiles) => [...oldFiles, ...newFiles]);
-        // auto select new upload files
-        setSelectedFileIds((oldFiles) => {
-            const updatedFiles = new Set(oldFiles);
-            newFiles.forEach((a) => updatedFiles.add(a.id));
-            return updatedFiles;
+
+        // upload each new file to the API
+        newFiles.forEach((attachment, index) => {
+            void ragApi.uploadFiles([arr[index]], attachment.id, user.email)
+                .then((response) => {
+                    // update file based on API response, process will unlikely be processed immediately
+                    // but this code is a safeguard to ensure the file status is updated correctly
+                    const status = statusFromApi(response.files[0]?.processing_status ?? "processing");
+                    const isProcessed = status === "completed";
+                    const error = status === "failed" ? "Processing failed." : undefined;
+                    setUploadedFiles((files) => {
+                        const currentFile = files.find((file) => file.id === attachment.id);
+                        if (!currentFile || (currentFile.status === status && currentFile.isProcessed === isProcessed && currentFile.error === error)) return files;
+                        return files.map((file) => file.id === attachment.id ? { ...file, status, isProcessed, error } : file);
+                    });
+                })
+                .catch(() => {
+                    setUploadedFiles((oldFiles) => oldFiles.map((file) => file.id === attachment.id
+                        ? { ...file, status: "failed", isProcessed: false, error: "Upload failed." }
+                        : file,
+                    ));
+                });
         });
     }
 
@@ -340,14 +398,13 @@ export default function ChatClient({ user, signOutAction }: Props) {
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         const trimmed = input.trim();
-        if (!trimmed && selectedFileIds.size === 0) return;
+        if (!trimmed && selectedReadyFiles.length === 0) return;
 
         const userMessage: Message = {
             id: crypto.randomUUID(),
             role: "user",
             content: trimmed,
-            attachments: uploadedFiles
-                .filter((f) => selectedFileIds.has(f.id))
+            attachments: selectedReadyFiles
                 .map((f) => ({ id: f.id, name: f.name, size: f.size, type: f.type })),
             timestamp: new Date(),
         };
@@ -442,31 +499,13 @@ export default function ChatClient({ user, signOutAction }: Props) {
                             {uploadedFiles.length === 0 ? (
                                 <p className="text-xs text-zinc-500">No files uploaded — use the attach button.</p>
                             ) : (
-                                <div className="flex flex-col gap-2 max-h-60 overflow-auto">
-                                    {uploadedFiles.map((f) => (
-                                        <div key={f.id} className="flex items-center gap-2">
-                                            <input
-                                                id={`sel-${f.id}`}
-                                                type="checkbox"
-                                                checked={selectedFileIds.has(f.id)}
-                                                onChange={() => toggleSelectFile(f.id)}
-                                                className="h-4 w-4"
-                                            />
-                                            <div className="min-w-0 flex-1">
-                                                <div className="text-sm truncate">{f.name}</div>
-                                                <div className="text-xs text-zinc-400">{formatBytes(f.size)}</div>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => removeUploadedFile(f.id)}
-                                                className="text-zinc-400 hover:text-zinc-600 ml-2"
-                                                aria-label={`Remove ${f.name}`}
-                                            >
-                                                ✕
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
+                                <AttachmentList
+                                    files={uploadedFiles}
+                                    selectedFileIds={selectedFileIds}
+                                    onToggle={toggleSelectFile}
+                                    onRemove={removeUploadedFile}
+                                    variant="sidebar"
+                                />
                             )}
                             <div className="mt-3 text-xs text-zinc-500">Selected files will be included in the next message.</div>
                         </div>
@@ -524,31 +563,13 @@ export default function ChatClient({ user, signOutAction }: Props) {
             {/* Mobile files strip */}
             <div className="md:hidden bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 px-4 py-2">
                 {uploadedFiles.length > 0 ? (
-                    <div className="flex gap-2 overflow-x-auto">
-                        {uploadedFiles.map((f) => (
-                            <div key={f.id} className="flex items-center gap-2 rounded-lg bg-black/5 dark:bg-white/10 px-3 py-2 min-w-[140px]">
-                                <input
-                                    id={`mob-sel-${f.id}`}
-                                    type="checkbox"
-                                    checked={selectedFileIds.has(f.id)}
-                                    onChange={() => toggleSelectFile(f.id)}
-                                    className="h-4 w-4"
-                                />
-                                <div className="min-w-0 flex-1">
-                                    <div className="text-sm truncate">{f.name}</div>
-                                    <div className="text-xs text-zinc-400">{formatBytes(f.size)}</div>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => removeUploadedFile(f.id)}
-                                    className="text-zinc-400 hover:text-zinc-600 ml-2"
-                                    aria-label={`Remove ${f.name}`}
-                                >
-                                    ✕
-                                </button>
-                            </div>
-                        ))}
-                    </div>
+                    <AttachmentList
+                        files={uploadedFiles}
+                        selectedFileIds={selectedFileIds}
+                        onToggle={toggleSelectFile}
+                        onRemove={removeUploadedFile}
+                        variant="mobile"
+                    />
                 ) : (
                     <div className="text-xs text-zinc-500">No uploaded files</div>
                 )}
@@ -601,7 +622,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
                         {/* Send button */}
                         <button
                             type="submit"
-                            disabled={isLoading || (!input.trim() && selectedFileIds.size === 0)}
+                            disabled={isLoading || (!input.trim() && selectedReadyFiles.length === 0)}
                             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 shadow-sm transition-all hover:bg-zinc-700 dark:hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
                             aria-label="Send message"
                         >
