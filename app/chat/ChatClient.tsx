@@ -351,7 +351,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
         });
 
         // add new files to state
-        setUploadedFiles((oldFiles) => [...oldFiles, ...newFiles]);
+        setUploadedFiles((files) => [...files, ...newFiles]);
 
         // upload each new file to the API
         newFiles.forEach((attachment, index) => {
@@ -369,7 +369,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
                     });
                 })
                 .catch(() => {
-                    setUploadedFiles((oldFiles) => oldFiles.map((file) => file.id === attachment.id
+                    setUploadedFiles((files) => files.map((file) => file.id === attachment.id
                         ? { ...file, status: "failed", isProcessed: false, error: "Upload failed." }
                         : file,
                     ));
@@ -378,17 +378,17 @@ export default function ChatClient({ user, signOutAction }: Props) {
     }
 
     function removeUploadedFile(id: string) {
-        setUploadedFiles((oldFiles) => oldFiles.filter((f) => f.id !== id));
-        setSelectedFileIds((oldFiles) => {
-            const updatedFiles = new Set(oldFiles);
+        setUploadedFiles((files) => files.filter((f) => f.id !== id));
+        setSelectedFileIds((files) => {
+            const updatedFiles = new Set(files);
             updatedFiles.delete(id);
             return updatedFiles;
         });
     }
 
     function toggleSelectFile(id: string) {
-        setSelectedFileIds((oldFiles) => {
-            const updatedFiles = new Set(oldFiles);
+        setSelectedFileIds((files) => {
+            const updatedFiles = new Set(files);
             if (updatedFiles.has(id)) updatedFiles.delete(id);
             else updatedFiles.add(id);
             return updatedFiles;
@@ -409,7 +409,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
             timestamp: new Date(),
         };
 
-        setMessages((oldMessages) => [...oldMessages, userMessage]);
+        setMessages((messages) => [...messages, userMessage]);
         setInput("");
         // keep uploadedFiles for future reference; just clear selection
         setSelectedFileIds(new Set());
