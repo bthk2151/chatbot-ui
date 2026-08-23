@@ -266,6 +266,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
     const [isDraggingOver, setIsDraggingOver] = useState(false);
     const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
     const [isLoading, setIsLoading] = useState(false);
+    const [conversationId, setConversationId] = useState<number | null>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -397,36 +398,62 @@ export default function ChatClient({ user, signOutAction }: Props) {
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
-        const trimmed = input.trim();
-        if (!trimmed && selectedReadyFiles.length === 0) return;
-
+        const trimmedInput = input.trim();
+        if (!trimmedInput) return;
         const userMessage: Message = {
             id: crypto.randomUUID(),
             role: "user",
-            content: trimmed,
+            content: trimmedInput,
             attachments: selectedReadyFiles
                 .map((f) => ({ id: f.id, name: f.name, size: f.size, type: f.type })),
             timestamp: new Date(),
         };
 
+        // if no files are selected, show a warning message instead of sending the query
+        if (selectedFileIds.size === 0) {
+            setMessages((messages) => [...messages, userMessage]);
+            setInput("");
+            setIsLoading(true);
+            await new Promise((resolve) => window.setTimeout(resolve, 1_000)); // simulate a short delay between the user message and the bot response for better UX
+            setMessages((messages) => [
+                ...messages,
+                {
+                    id: crypto.randomUUID(),
+                    role: "bot",
+                    content: "Please upload and select a file before sending a message.",
+                    attachments: [],
+                    timestamp: new Date(),
+                },
+            ]);
+            setIsLoading(false);
+            return;
+        }
+
         setMessages((messages) => [...messages, userMessage]);
         setInput("");
-        // keep uploadedFiles for future reference; just clear selection
-        setSelectedFileIds(new Set());
         setIsLoading(true);
 
-        // Placeholder — replace with your AI API call
-        setTimeout(() => {
+        try {
+            const response = await ragApi.query({
+                user_id: user.email,
+                query: trimmedInput,
+                top_k: 5,
+                folder_names: Array.from(selectedFileIds),
+                conversation_id: conversationId,
+            });
+
+            setConversationId(response.conversation_id);
             const botResponse: Message = {
                 id: crypto.randomUUID(),
                 role: "bot",
-                content: `I received your message${userMessage.attachments.length > 0 ? ` along with ${userMessage.attachments.length} file${userMessage.attachments.length > 1 ? "s" : ""}` : ""}. This is a placeholder — connect me to an AI backend to get real answers!`,
+                content: response.answer,
                 attachments: [],
                 timestamp: new Date(),
             };
-            setMessages((oldMessages) => [...oldMessages, botResponse]);
+            setMessages((messages) => [...messages, botResponse]);
+        } finally {
             setIsLoading(false);
-        }, 1200);
+        }
     }
 
     return (
