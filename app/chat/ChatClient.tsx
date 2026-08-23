@@ -4,6 +4,7 @@ import { useRef, useState, useEffect } from "react";
 import Image from "next/image";
 import { ragApi } from "@/lib/rag-api";
 import { AttachmentList } from "./components/AttachmentList";
+import { MessageContent } from "./components/MessageContent";
 import { formatBytes, formatTime } from "./formatters";
 import type { Attachment, MessageAttachment, UserProps } from "./types";
 
@@ -210,9 +211,9 @@ function ChatBubble({ message, user }: { message: Message; user: UserProps }) {
                     `}
                 >
                     {message.content && (
-                        <p className="text-sm text-zinc-800 dark:text-zinc-100 leading-relaxed whitespace-pre-wrap">
-                            {message.content}
-                        </p>
+                        <div className="text-sm text-zinc-800 dark:text-zinc-100 leading-relaxed">
+                            <MessageContent content={message.content} />
+                        </div>
                     )}
 
                     {/* Attached files */}
@@ -271,7 +272,15 @@ export default function ChatClient({ user, signOutAction }: Props) {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const pollingFileIds = useRef(new Set<string>());
+    const automaticallySelectedFileIds = useRef(new Set<string>());
     const selectedReadyFiles = uploadedFiles.filter((file) => selectedFileIds.has(file.id) && file.isProcessed);
+
+    function autoSelectProcessedFile(id: string) {
+        if (automaticallySelectedFileIds.current.has(id)) return;
+
+        automaticallySelectedFileIds.current.add(id);
+        setSelectedFileIds((fileIds) => new Set(fileIds).add(id));
+    }
 
     // auto scroll to bottom whenever new message is added
     useEffect(() => {
@@ -308,6 +317,9 @@ export default function ChatClient({ user, signOutAction }: Props) {
                     const status = statusFromApi(response.processing_status);
                     const isProcessed = status === "completed";
                     const error = status === "failed" ? "Processing failed." : undefined;
+                    if (isProcessed) {
+                        autoSelectProcessedFile(file.id);
+                    }
                     setUploadedFiles((files) => {
                         const currentFile = files.find((item) => item.id === file.id);
                         if (!currentFile || (currentFile.status === status && currentFile.isProcessed === isProcessed && currentFile.error === error)) return files;
@@ -363,6 +375,9 @@ export default function ChatClient({ user, signOutAction }: Props) {
                     const status = statusFromApi(response.files[0]?.processing_status ?? "processing");
                     const isProcessed = status === "completed";
                     const error = status === "failed" ? "Processing failed." : undefined;
+                    if (isProcessed) {
+                        autoSelectProcessedFile(attachment.id);
+                    }
                     setUploadedFiles((files) => {
                         const currentFile = files.find((file) => file.id === attachment.id);
                         if (!currentFile || (currentFile.status === status && currentFile.isProcessed === isProcessed && currentFile.error === error)) return files;
@@ -488,7 +503,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
             <main className="flex-1 overflow-hidden">
                 <div className="mx-auto max-w-5xl px-4 py-6 flex gap-6 h-full flex-col md:flex-row">
                     {/* Files sidebar */}
-                    <aside className="w-full md:w-72 flex-shrink-0 md:sticky md:top-6 self-start">
+                    <aside className="w-full md:w-72 flex-shrink-0 md:sticky md:top-6 self-start space-y-3">
                         <div
                             className={`bg-white dark:bg-zinc-900 rounded-2xl p-3 shadow ${isDraggingOver ? "ring-2 ring-emerald-400/60" : ""
                                 }`}
@@ -534,7 +549,21 @@ export default function ChatClient({ user, signOutAction }: Props) {
                                     variant="sidebar"
                                 />
                             )}
-                            <div className="mt-3 text-xs text-zinc-500">Selected files will be included in the next message.</div>
+                        </div>
+                        <div className="flex gap-2.5 rounded-xl border border-emerald-100 bg-emerald-50/70 p-3 text-xs leading-relaxed text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-100">
+                            <svg
+                                className="mt-0.5 h-4 w-4 shrink-0"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                aria-hidden="true"
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <p>
+                                PDFs are recommended. We process texts within attachments to find relevant words, and selected files are included in your next message.
+                            </p>
                         </div>
                     </aside>
 
