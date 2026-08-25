@@ -452,7 +452,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
             const response = await ragApi.query({
                 user_id: user.email,
                 query: trimmedInput,
-                top_k: 5,
+                top_k: 100,
                 folder_names: Array.from(selectedFileIds),
                 conversation_id: conversationId,
             });
@@ -472,7 +472,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
     }
 
     return (
-        <div className="h-screen flex flex-col bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
+        <div className="h-screen h-dvh flex flex-col bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
             {/* ── Header ── */}
             <header className="flex-none flex items-center justify-between px-4 py-3 bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 shadow-sm z-10">
                 {/* Logo */}
@@ -500,10 +500,10 @@ export default function ChatClient({ user, signOutAction }: Props) {
             </header>
 
             {/* ── Messages ── */}
-            <main className="flex-1 overflow-hidden">
-                <div className="mx-auto max-w-5xl px-4 py-6 flex gap-6 h-full flex-col md:flex-row">
+            <main className="flex-1 min-h-0 overflow-hidden">
+                <div className="mx-auto max-w-5xl px-4 py-6 flex gap-6 h-full min-h-0 flex-col md:flex-row">
                     {/* Files sidebar */}
-                    <aside className="w-full md:w-72 flex-shrink-0 md:sticky md:top-6 self-start space-y-3">
+                    <aside className="hidden md:block md:w-72 flex-shrink-0 md:sticky md:top-6 self-start space-y-3">
                         <div
                             className={`bg-white dark:bg-zinc-900 rounded-2xl p-3 shadow ${isDraggingOver ? "ring-2 ring-emerald-400/60" : ""
                                 }`}
@@ -567,8 +567,8 @@ export default function ChatClient({ user, signOutAction }: Props) {
                         </div>
                     </aside>
 
-                    <div className="flex-1 flex flex-col">
-                        <div className="flex-1 overflow-y-auto space-y-4">
+                    <div className="flex-1 min-h-0 flex flex-col">
+                        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y space-y-4">
                             {messages.map((msg) => (
                                 <ChatBubble key={msg.id} message={msg} user={user} />
                             ))}
