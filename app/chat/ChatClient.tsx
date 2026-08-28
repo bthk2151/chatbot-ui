@@ -4,15 +4,17 @@ import { useRef, useState, useEffect } from "react";
 import Image from "next/image";
 import { ragApi } from "@/lib/rag-api";
 import { AttachmentList } from "./components/AttachmentList";
+import { ConversationList } from "./components/ConversationList";
 import { MessageContent } from "./components/MessageContent";
 import { formatBytes, formatTime } from "./formatters";
 import type { Attachment, MessageAttachment, UserProps } from "./types";
+import type { ConversationSummary } from "@/lib/rag-api";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type Message = {
-    id: string;
-    role: "user" | "bot";
+    id: string; // UUID for local messages, DB ID for saved messages from the API
+    role: "user" | "assistant";
     content: string;
     attachments: MessageAttachment[];
     timestamp: Date;
@@ -34,6 +36,16 @@ function statusFromApi(status: string): Attachment["status"] {
         default:
             return "processing";
     }
+}
+
+function createWelcomeMessage(userName: string): Message {
+    return {
+        id: "welcome",
+        role: "assistant",
+        content: `Hi, ${userName.split(" ")[0]}! 👋 I'm your AI assistant. How can I help you today? \n\nPlease attach the relevant file(s) and wait until they show as \`Ready\`. Then, select the file(s) before sending your message. PDFs are recommended for the best results.`,
+        attachments: [],
+        timestamp: new Date(),
+    };
 }
 
 // ── Profile card (top-right dropdown) ─────────────────────────────────────
@@ -266,13 +278,25 @@ export default function ChatClient({ user, signOutAction }: Props) {
     const [uploadedFiles, setUploadedFiles] = useState<Attachment[]>([]);
     const [isDraggingOver, setIsDraggingOver] = useState(false);
     const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoading, setIsLoading] = useState(false); // loading state for the assistant's response, not file uploads
     const [conversationId, setConversationId] = useState<number | null>(null);
+    const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+    const [isConversationsLoading, setIsConversationsLoading] = useState(true);
+    const [isConversationLoading, setIsConversationLoading] = useState(false);
+    const [conversationsError, setConversationsError] = useState<string | null>(null);
+    const [conversationLoadError, setConversationLoadError] = useState<string | null>(null);
+    const [conversationActionError, setConversationActionError] = useState<string | null>(null);
+    const [deletingConversationIds, setDeletingConversationIds] = useState<Set<number>>(new Set());
+    const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
+    const [isMobileConversationsOpen, setIsMobileConversationsOpen] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const pollingFileIds = useRef(new Set<string>());
     const automaticallySelectedFileIds = useRef(new Set<string>());
+    const conversationRequestId = useRef(0);
+    const selectedConversationIdRef = useRef<number | null>(null);
+    const deletingConversationIdsRef = useRef(new Set<number>());
     const selectedReadyFiles = uploadedFiles.filter((file) => selectedFileIds.has(file.id) && file.isProcessed);
 
     function autoSelectProcessedFile(id: string) {
@@ -289,16 +313,29 @@ export default function ChatClient({ user, signOutAction }: Props) {
 
     // init with useEffect to ensure local time is used
     useEffect(() => {
-        setMessages([
-            {
-                id: "welcome",
-                role: "bot",
-                content: `Hi, ${user.name.split(" ")[0]}! 👋 I'm your AI assistant. How can I help you today? Attach files before sending your messages.`,
-                attachments: [],
-                timestamp: new Date(),
-            },
-        ]);
+        setMessages([createWelcomeMessage(user.name)]);
     }, [user.name]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        async function loadConversations() {
+            setIsConversationsLoading(true);
+            setConversationsError(null);
+
+            try {
+                const response = await ragApi.listConversations(user.email);
+                if (!cancelled) setConversations(response.conversations);
+            } catch {
+                if (!cancelled) setConversationsError("Unable to load conversations.");
+            } finally {
+                if (!cancelled) setIsConversationsLoading(false);
+            }
+        }
+
+        void loadConversations();
+        return () => { cancelled = true; };
+    }, [user.email]);
 
     // Each processing file is polled independently. The effect is reset as files
     // finish, fail, are removed, or are added, so completed files are never polled.
@@ -411,8 +448,98 @@ export default function ChatClient({ user, signOutAction }: Props) {
         });
     }
 
+    async function selectConversation(id: number) {
+        const requestId = ++conversationRequestId.current;
+        selectedConversationIdRef.current = id;
+        setSelectedConversationId(id);
+        setConversationLoadError(null);
+        setConversationActionError(null);
+        setIsConversationLoading(true);
+
+        try {
+            const response = await ragApi.getConversation(id, user.email);
+            if (requestId !== conversationRequestId.current) return;
+
+            const files: Attachment[] = response.uploaded_files.map((file) => ({
+                id: file.folder_name,
+                name: file.original_file_name,
+                size: file.size_bytes,
+                type: file.content_type ?? "",
+                status: "completed",
+                isProcessed: true,
+            }));
+            const fileIds = new Set(files.map((file) => file.id));
+
+            setConversationId(response.conversation_id);
+            setMessages(response.messages.map((message) => ({
+                id: String(message.id), // convert DB ID to string for consistency with local messages
+                role: message.role as Message["role"], // cast to ensure type safety
+                content: message.content,
+                attachments: [],
+                timestamp: new Date(message.created_at),
+            })));
+            setUploadedFiles(files);
+            setSelectedFileIds(fileIds);
+            automaticallySelectedFileIds.current = new Set(fileIds);
+            setIsMobileConversationsOpen(false);
+        } catch {
+            if (requestId === conversationRequestId.current) {
+                setConversationLoadError("Unable to load the selected conversation.");
+            }
+        } finally {
+            if (requestId === conversationRequestId.current) {
+                setIsConversationLoading(false);
+            }
+        }
+    }
+
+    function createNewConversation() {
+        if (isLoading) return;
+
+        conversationRequestId.current += 1;
+        selectedConversationIdRef.current = null;
+        setConversationId(null);
+        setSelectedConversationId(null);
+        setMessages([createWelcomeMessage(user.name)]);
+        setUploadedFiles([]);
+        setSelectedFileIds(new Set());
+        automaticallySelectedFileIds.current.clear();
+        setInput("");
+        setConversationLoadError(null);
+        setConversationActionError(null);
+        setIsConversationLoading(false);
+        setIsMobileConversationsOpen(false);
+    }
+
+    async function deleteConversation(id: number) {
+        if (isLoading || deletingConversationIdsRef.current.has(id)) return;
+
+        deletingConversationIdsRef.current.add(id);
+        setDeletingConversationIds((ids) => new Set(ids).add(id));
+        setConversationActionError(null);
+
+        try {
+            await ragApi.deleteConversation(id, user.email);
+            setConversations((items) => items.filter((conversation) => conversation.id !== id));
+
+            if (selectedConversationIdRef.current === id) {
+                createNewConversation();
+            }
+        } catch {
+            setConversationActionError("Unable to delete the conversation.");
+        } finally {
+            deletingConversationIdsRef.current.delete(id);
+            setDeletingConversationIds((ids) => {
+                const updatedIds = new Set(ids);
+                updatedIds.delete(id);
+                return updatedIds;
+            });
+        }
+    }
+
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
+        if (isConversationLoading) return;
         const trimmedInput = input.trim();
         if (!trimmedInput) return;
         const userMessage: Message = {
@@ -429,12 +556,12 @@ export default function ChatClient({ user, signOutAction }: Props) {
             setMessages((messages) => [...messages, userMessage]);
             setInput("");
             setIsLoading(true);
-            await new Promise((resolve) => window.setTimeout(resolve, 1_000)); // simulate a short delay between the user message and the bot response for better UX
+            await new Promise((resolve) => window.setTimeout(resolve, 1_000)); // simulate a short delay between the user message and the assistant response for better UX
             setMessages((messages) => [
                 ...messages,
                 {
                     id: crypto.randomUUID(),
-                    role: "bot",
+                    role: "assistant",
                     content: "Please upload and select a file before sending a message.",
                     attachments: [],
                     timestamp: new Date(),
@@ -458,14 +585,14 @@ export default function ChatClient({ user, signOutAction }: Props) {
             });
 
             setConversationId(response.conversation_id);
-            const botResponse: Message = {
+            const assistantResponse: Message = {
                 id: crypto.randomUUID(),
-                role: "bot",
+                role: "assistant",
                 content: response.answer,
                 attachments: [],
                 timestamp: new Date(),
             };
-            setMessages((messages) => [...messages, botResponse]);
+            setMessages((messages) => [...messages, assistantResponse]);
         } finally {
             setIsLoading(false);
         }
@@ -474,9 +601,21 @@ export default function ChatClient({ user, signOutAction }: Props) {
     return (
         <div className="h-screen h-dvh flex flex-col bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
             {/* ── Header ── */}
-            <header className="flex-none flex items-center justify-between px-4 py-3 bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 shadow-sm z-10">
+            <header className="flex h-14 flex-none items-center justify-between px-4 bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 shadow-sm z-10">
                 {/* Logo */}
                 <div className="flex items-center gap-2.5">
+                    <button
+                        type="button"
+                        onClick={() => setIsMobileConversationsOpen((open) => !open)}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 md:hidden"
+                        aria-label="Toggle conversations"
+                        aria-expanded={isMobileConversationsOpen}
+                        aria-controls="mobile-conversations"
+                    >
+                        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                    </button>
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 dark:bg-white">
                         <svg
                             className="h-4 w-4 text-white dark:text-zinc-900"
@@ -498,6 +637,29 @@ export default function ChatClient({ user, signOutAction }: Props) {
                 {/* Profile card — top-right */}
                 <ProfileCard user={user} signOutAction={signOutAction} />
             </header>
+
+            <aside
+                id="mobile-conversations"
+                aria-hidden={!isMobileConversationsOpen}
+                className={`absolute bottom-0 left-0 top-14 z-20 w-72 overflow-y-auto border-r border-zinc-200 bg-white p-4 shadow-xl transition-transform duration-300 ease-out dark:border-zinc-800 dark:bg-zinc-900 md:hidden ${isMobileConversationsOpen ? "translate-x-0" : "pointer-events-none -translate-x-full"}`}
+            >
+                <div className="mb-3 px-3">
+                    <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Conversations</h2>
+                </div>
+                <ConversationList
+                    conversations={conversations}
+                    isLoading={isConversationsLoading}
+                    error={conversationsError}
+                    selectedConversationId={selectedConversationId}
+                    onSelect={selectConversation}
+                    onDelete={deleteConversation}
+                    onCreateNew={createNewConversation}
+                    isCreateDisabled={isLoading}
+                    isDeleteDisabled={isLoading}
+                    deletingConversationIds={deletingConversationIds}
+                    actionError={conversationActionError}
+                />
+            </aside>
 
             {/* ── Messages ── */}
             <main className="flex-1 min-h-0 overflow-hidden">
@@ -550,24 +712,40 @@ export default function ChatClient({ user, signOutAction }: Props) {
                                 />
                             )}
                         </div>
-                        <div className="flex gap-2.5 rounded-xl border border-emerald-100 bg-emerald-50/70 p-3 text-xs leading-relaxed text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-100">
-                            <svg
-                                className="mt-0.5 h-4 w-4 shrink-0"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                                aria-hidden="true"
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <p>
-                                PDFs are recommended. We process texts within attachments to find relevant words, and selected files are included in your next message.
-                            </p>
-                        </div>
+                        <section className="rounded-2xl bg-white p-3 shadow dark:bg-zinc-900">
+                            <div className="mb-2 flex items-center justify-between">
+                                <h2 className="text-sm font-semibold">Conversations</h2>
+                                {!isConversationsLoading && !conversationsError && (
+                                    <span className="text-xs text-zinc-400">{conversations.length}</span>
+                                )}
+                            </div>
+                            <ConversationList
+                                conversations={conversations}
+                                isLoading={isConversationsLoading}
+                                error={conversationsError}
+                                selectedConversationId={selectedConversationId}
+                                onSelect={selectConversation}
+                                onDelete={deleteConversation}
+                                onCreateNew={createNewConversation}
+                                isCreateDisabled={isLoading}
+                                isDeleteDisabled={isLoading}
+                                deletingConversationIds={deletingConversationIds}
+                                actionError={conversationActionError}
+                            />
+                        </section>
                     </aside>
 
                     <div className="flex-1 min-h-0 flex flex-col">
+                        {isConversationLoading && (
+                            <p className="mb-3 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                                Loading conversation…
+                            </p>
+                        )}
+                        {conversationLoadError && (
+                            <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">
+                                {conversationLoadError}
+                            </p>
+                        )}
                         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y space-y-4">
                             {messages.map((msg) => (
                                 <ChatBubble key={msg.id} message={msg} user={user} />
@@ -671,6 +849,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
                             type="text"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
+                            disabled={isConversationLoading}
                             placeholder="Type a message…"
                             className="flex-1 rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-2.5 text-sm text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-transparent"
                         />
@@ -678,7 +857,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
                         {/* Send button */}
                         <button
                             type="submit"
-                            disabled={isLoading || (!input.trim() && selectedReadyFiles.length === 0)}
+                            disabled={isLoading || isConversationLoading || (!input.trim() && selectedReadyFiles.length === 0)}
                             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 shadow-sm transition-all hover:bg-zinc-700 dark:hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
                             aria-label="Send message"
                         >
