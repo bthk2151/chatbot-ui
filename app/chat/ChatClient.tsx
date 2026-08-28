@@ -13,7 +13,7 @@ import type { ConversationSummary } from "@/lib/rag-api";
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type Message = {
-    id: string;
+    id: string; // UUID for local messages, DB ID for saved messages from the API
     role: "user" | "assistant";
     content: string;
     attachments: MessageAttachment[];
@@ -272,7 +272,9 @@ export default function ChatClient({ user, signOutAction }: Props) {
     const [conversationId, setConversationId] = useState<number | null>(null);
     const [conversations, setConversations] = useState<ConversationSummary[]>([]);
     const [isConversationsLoading, setIsConversationsLoading] = useState(true);
+    const [isConversationLoading, setIsConversationLoading] = useState(false);
     const [conversationsError, setConversationsError] = useState<string | null>(null);
+    const [conversationLoadError, setConversationLoadError] = useState<string | null>(null);
     const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
     const [isMobileConversationsOpen, setIsMobileConversationsOpen] = useState(false);
 
@@ -280,6 +282,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const pollingFileIds = useRef(new Set<string>());
     const automaticallySelectedFileIds = useRef(new Set<string>());
+    const conversationRequestId = useRef(0);
     const selectedReadyFiles = uploadedFiles.filter((file) => selectedFileIds.has(file.id) && file.isProcessed);
 
     function autoSelectProcessedFile(id: string) {
@@ -439,13 +442,52 @@ export default function ChatClient({ user, signOutAction }: Props) {
         });
     }
 
-    function selectConversation(id: number) {
-        // Selecting a conversation is intentionally display-only for now.
+    async function selectConversation(id: number) {
+        const requestId = ++conversationRequestId.current;
         setSelectedConversationId(id);
+        setConversationLoadError(null);
+        setIsConversationLoading(true);
+
+        try {
+            const response = await ragApi.getConversation(id, user.email);
+            if (requestId !== conversationRequestId.current) return;
+
+            const files: Attachment[] = response.uploaded_files.map((file) => ({
+                id: file.folder_name,
+                name: file.original_file_name,
+                size: file.size_bytes,
+                type: file.content_type ?? "",
+                status: "completed",
+                isProcessed: true,
+            }));
+            const fileIds = new Set(files.map((file) => file.id));
+
+            setConversationId(response.conversation_id);
+            setMessages(response.messages.map((message) => ({
+                id: String(message.id), // convert DB ID to string for consistency with local messages
+                role: message.role as Message["role"], // cast to ensure type safety
+                content: message.content,
+                attachments: [],
+                timestamp: new Date(message.created_at),
+            })));
+            setUploadedFiles(files);
+            setSelectedFileIds(fileIds);
+            automaticallySelectedFileIds.current = new Set(fileIds);
+            setIsMobileConversationsOpen(false);
+        } catch {
+            if (requestId === conversationRequestId.current) {
+                setConversationLoadError("Unable to load the selected conversation.");
+            }
+        } finally {
+            if (requestId === conversationRequestId.current) {
+                setIsConversationLoading(false);
+            }
+        }
     }
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
+        if (isConversationLoading) return;
         const trimmedInput = input.trim();
         if (!trimmedInput) return;
         const userMessage: Message = {
@@ -630,6 +672,16 @@ export default function ChatClient({ user, signOutAction }: Props) {
                     </aside>
 
                     <div className="flex-1 min-h-0 flex flex-col">
+                        {isConversationLoading && (
+                            <p className="mb-3 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                                Loading conversation…
+                            </p>
+                        )}
+                        {conversationLoadError && (
+                            <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">
+                                {conversationLoadError}
+                            </p>
+                        )}
                         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y space-y-4">
                             {messages.map((msg) => (
                                 <ChatBubble key={msg.id} message={msg} user={user} />
@@ -733,6 +785,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
                             type="text"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
+                            disabled={isConversationLoading}
                             placeholder="Type a message…"
                             className="flex-1 rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-4 py-2.5 text-sm text-zinc-900 dark:text-zinc-50 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-transparent"
                         />
@@ -740,7 +793,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
                         {/* Send button */}
                         <button
                             type="submit"
-                            disabled={isLoading || (!input.trim() && selectedReadyFiles.length === 0)}
+                            disabled={isLoading || isConversationLoading || (!input.trim() && selectedReadyFiles.length === 0)}
                             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 shadow-sm transition-all hover:bg-zinc-700 dark:hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
                             aria-label="Send message"
                         >
