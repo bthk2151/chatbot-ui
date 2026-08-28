@@ -300,7 +300,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
             {
                 id: "welcome",
                 role: "bot",
-                content: `Hi, ${user.name.split(" ")[0]}! 👋 I'm your AI assistant. How can I help you today? Attach files before sending your messages.`,
+                content: `Hi, ${user.name.split(" ")[0]}! 👋 I'm your AI assistant. How can I help you today? \n\nPlease attach the relevant file(s) and wait until they show as \`Ready\`. Then, select the file(s) before sending your message. PDFs are recommended for the best results.`,
                 attachments: [],
                 timestamp: new Date(),
             },
@@ -549,16 +549,16 @@ export default function ChatClient({ user, signOutAction }: Props) {
                 aria-hidden={!isMobileConversationsOpen}
                 className={`absolute bottom-0 left-0 top-14 z-20 w-72 overflow-y-auto border-r border-zinc-200 bg-white p-4 shadow-xl transition-transform duration-300 ease-out dark:border-zinc-800 dark:bg-zinc-900 md:hidden ${isMobileConversationsOpen ? "translate-x-0" : "pointer-events-none -translate-x-full"}`}
             >
-                    <div className="mb-3 px-3">
-                        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Conversations</h2>
-                    </div>
-                    <ConversationList
-                        conversations={conversations}
-                        isLoading={isConversationsLoading}
-                        error={conversationsError}
-                        selectedConversationId={selectedConversationId}
-                        onSelect={selectConversation}
-                    />
+                <div className="mb-3 px-3">
+                    <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Conversations</h2>
+                </div>
+                <ConversationList
+                    conversations={conversations}
+                    isLoading={isConversationsLoading}
+                    error={conversationsError}
+                    selectedConversationId={selectedConversationId}
+                    onSelect={selectConversation}
+                />
             </aside>
 
             {/* ── Messages ── */}
@@ -627,21 +627,6 @@ export default function ChatClient({ user, signOutAction }: Props) {
                                 onSelect={selectConversation}
                             />
                         </section>
-                        <div className="flex gap-2.5 rounded-xl border border-emerald-100 bg-emerald-50/70 p-3 text-xs leading-relaxed text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-100">
-                            <svg
-                                className="mt-0.5 h-4 w-4 shrink-0"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                                aria-hidden="true"
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <p>
-                                PDFs are recommended. We process texts within attachments to find relevant words, and selected files are included in your next message.
-                            </p>
-                        </div>
                     </aside>
 
                     <div className="flex-1 min-h-0 flex flex-col">
