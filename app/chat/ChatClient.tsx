@@ -285,6 +285,8 @@ export default function ChatClient({ user, signOutAction }: Props) {
     const [isConversationLoading, setIsConversationLoading] = useState(false);
     const [conversationsError, setConversationsError] = useState<string | null>(null);
     const [conversationLoadError, setConversationLoadError] = useState<string | null>(null);
+    const [conversationActionError, setConversationActionError] = useState<string | null>(null);
+    const [deletingConversationIds, setDeletingConversationIds] = useState<Set<number>>(new Set());
     const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
     const [isMobileConversationsOpen, setIsMobileConversationsOpen] = useState(false);
 
@@ -293,6 +295,8 @@ export default function ChatClient({ user, signOutAction }: Props) {
     const pollingFileIds = useRef(new Set<string>());
     const automaticallySelectedFileIds = useRef(new Set<string>());
     const conversationRequestId = useRef(0);
+    const selectedConversationIdRef = useRef<number | null>(null);
+    const deletingConversationIdsRef = useRef(new Set<number>());
     const selectedReadyFiles = uploadedFiles.filter((file) => selectedFileIds.has(file.id) && file.isProcessed);
 
     function autoSelectProcessedFile(id: string) {
@@ -446,8 +450,10 @@ export default function ChatClient({ user, signOutAction }: Props) {
 
     async function selectConversation(id: number) {
         const requestId = ++conversationRequestId.current;
+        selectedConversationIdRef.current = id;
         setSelectedConversationId(id);
         setConversationLoadError(null);
+        setConversationActionError(null);
         setIsConversationLoading(true);
 
         try {
@@ -491,6 +497,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
         if (isLoading) return;
 
         conversationRequestId.current += 1;
+        selectedConversationIdRef.current = null;
         setConversationId(null);
         setSelectedConversationId(null);
         setMessages([createWelcomeMessage(user.name)]);
@@ -499,8 +506,35 @@ export default function ChatClient({ user, signOutAction }: Props) {
         automaticallySelectedFileIds.current.clear();
         setInput("");
         setConversationLoadError(null);
+        setConversationActionError(null);
         setIsConversationLoading(false);
         setIsMobileConversationsOpen(false);
+    }
+
+    async function deleteConversation(id: number) {
+        if (isLoading || deletingConversationIdsRef.current.has(id)) return;
+
+        deletingConversationIdsRef.current.add(id);
+        setDeletingConversationIds((ids) => new Set(ids).add(id));
+        setConversationActionError(null);
+
+        try {
+            await ragApi.deleteConversation(id, user.email);
+            setConversations((items) => items.filter((conversation) => conversation.id !== id));
+
+            if (selectedConversationIdRef.current === id) {
+                createNewConversation();
+            }
+        } catch {
+            setConversationActionError("Unable to delete the conversation.");
+        } finally {
+            deletingConversationIdsRef.current.delete(id);
+            setDeletingConversationIds((ids) => {
+                const updatedIds = new Set(ids);
+                updatedIds.delete(id);
+                return updatedIds;
+            });
+        }
     }
 
     async function handleSubmit(e: React.FormEvent) {
@@ -618,8 +652,12 @@ export default function ChatClient({ user, signOutAction }: Props) {
                     error={conversationsError}
                     selectedConversationId={selectedConversationId}
                     onSelect={selectConversation}
+                    onDelete={deleteConversation}
                     onCreateNew={createNewConversation}
                     isCreateDisabled={isLoading}
+                    isDeleteDisabled={isLoading}
+                    deletingConversationIds={deletingConversationIds}
+                    actionError={conversationActionError}
                 />
             </aside>
 
@@ -687,8 +725,12 @@ export default function ChatClient({ user, signOutAction }: Props) {
                                 error={conversationsError}
                                 selectedConversationId={selectedConversationId}
                                 onSelect={selectConversation}
+                                onDelete={deleteConversation}
                                 onCreateNew={createNewConversation}
                                 isCreateDisabled={isLoading}
+                                isDeleteDisabled={isLoading}
+                                deletingConversationIds={deletingConversationIds}
+                                actionError={conversationActionError}
                             />
                         </section>
                     </aside>
