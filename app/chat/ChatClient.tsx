@@ -38,6 +38,16 @@ function statusFromApi(status: string): Attachment["status"] {
     }
 }
 
+function createWelcomeMessage(userName: string): Message {
+    return {
+        id: "welcome",
+        role: "assistant",
+        content: `Hi, ${userName.split(" ")[0]}! 👋 I'm your AI assistant. How can I help you today? \n\nPlease attach the relevant file(s) and wait until they show as \`Ready\`. Then, select the file(s) before sending your message. PDFs are recommended for the best results.`,
+        attachments: [],
+        timestamp: new Date(),
+    };
+}
+
 // ── Profile card (top-right dropdown) ─────────────────────────────────────
 
 function ProfileCard({
@@ -268,7 +278,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
     const [uploadedFiles, setUploadedFiles] = useState<Attachment[]>([]);
     const [isDraggingOver, setIsDraggingOver] = useState(false);
     const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoading, setIsLoading] = useState(false); // loading state for the assistant's response, not file uploads
     const [conversationId, setConversationId] = useState<number | null>(null);
     const [conversations, setConversations] = useState<ConversationSummary[]>([]);
     const [isConversationsLoading, setIsConversationsLoading] = useState(true);
@@ -299,15 +309,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
 
     // init with useEffect to ensure local time is used
     useEffect(() => {
-        setMessages([
-            {
-                id: "welcome",
-                role: "assistant",
-                content: `Hi, ${user.name.split(" ")[0]}! 👋 I'm your AI assistant. How can I help you today? \n\nPlease attach the relevant file(s) and wait until they show as \`Ready\`. Then, select the file(s) before sending your message. PDFs are recommended for the best results.`,
-                attachments: [],
-                timestamp: new Date(),
-            },
-        ]);
+        setMessages([createWelcomeMessage(user.name)]);
     }, [user.name]);
 
     useEffect(() => {
@@ -485,6 +487,22 @@ export default function ChatClient({ user, signOutAction }: Props) {
         }
     }
 
+    function createNewConversation() {
+        if (isLoading) return;
+
+        conversationRequestId.current += 1;
+        setConversationId(null);
+        setSelectedConversationId(null);
+        setMessages([createWelcomeMessage(user.name)]);
+        setUploadedFiles([]);
+        setSelectedFileIds(new Set());
+        automaticallySelectedFileIds.current.clear();
+        setInput("");
+        setConversationLoadError(null);
+        setIsConversationLoading(false);
+        setIsMobileConversationsOpen(false);
+    }
+
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         if (isConversationLoading) return;
@@ -600,6 +618,8 @@ export default function ChatClient({ user, signOutAction }: Props) {
                     error={conversationsError}
                     selectedConversationId={selectedConversationId}
                     onSelect={selectConversation}
+                    onCreateNew={createNewConversation}
+                    isCreateDisabled={isLoading}
                 />
             </aside>
 
@@ -667,6 +687,8 @@ export default function ChatClient({ user, signOutAction }: Props) {
                                 error={conversationsError}
                                 selectedConversationId={selectedConversationId}
                                 onSelect={selectConversation}
+                                onCreateNew={createNewConversation}
+                                isCreateDisabled={isLoading}
                             />
                         </section>
                     </aside>
