@@ -4,9 +4,11 @@ import { useRef, useState, useEffect } from "react";
 import Image from "next/image";
 import { ragApi } from "@/lib/rag-api";
 import { AttachmentList } from "./components/AttachmentList";
+import { ConversationList } from "./components/ConversationList";
 import { MessageContent } from "./components/MessageContent";
 import { formatBytes, formatTime } from "./formatters";
 import type { Attachment, MessageAttachment, UserProps } from "./types";
+import type { ConversationSummary } from "@/lib/rag-api";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -268,6 +270,11 @@ export default function ChatClient({ user, signOutAction }: Props) {
     const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
     const [isLoading, setIsLoading] = useState(false);
     const [conversationId, setConversationId] = useState<number | null>(null);
+    const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+    const [isConversationsLoading, setIsConversationsLoading] = useState(true);
+    const [conversationsError, setConversationsError] = useState<string | null>(null);
+    const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
+    const [isMobileConversationsOpen, setIsMobileConversationsOpen] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -299,6 +306,27 @@ export default function ChatClient({ user, signOutAction }: Props) {
             },
         ]);
     }, [user.name]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        async function loadConversations() {
+            setIsConversationsLoading(true);
+            setConversationsError(null);
+
+            try {
+                const response = await ragApi.listConversations(user.email);
+                if (!cancelled) setConversations(response.conversations);
+            } catch {
+                if (!cancelled) setConversationsError("Unable to load conversations.");
+            } finally {
+                if (!cancelled) setIsConversationsLoading(false);
+            }
+        }
+
+        void loadConversations();
+        return () => { cancelled = true; };
+    }, [user.email]);
 
     // Each processing file is polled independently. The effect is reset as files
     // finish, fail, are removed, or are added, so completed files are never polled.
@@ -411,6 +439,11 @@ export default function ChatClient({ user, signOutAction }: Props) {
         });
     }
 
+    function selectConversation(id: number) {
+        // Selecting a conversation is intentionally display-only for now.
+        setSelectedConversationId(id);
+    }
+
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         const trimmedInput = input.trim();
@@ -474,9 +507,21 @@ export default function ChatClient({ user, signOutAction }: Props) {
     return (
         <div className="h-screen h-dvh flex flex-col bg-zinc-100 dark:bg-zinc-900 overflow-hidden">
             {/* ── Header ── */}
-            <header className="flex-none flex items-center justify-between px-4 py-3 bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 shadow-sm z-10">
+            <header className="flex h-14 flex-none items-center justify-between px-4 bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 shadow-sm z-10">
                 {/* Logo */}
                 <div className="flex items-center gap-2.5">
+                    <button
+                        type="button"
+                        onClick={() => setIsMobileConversationsOpen((open) => !open)}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 md:hidden"
+                        aria-label="Toggle conversations"
+                        aria-expanded={isMobileConversationsOpen}
+                        aria-controls="mobile-conversations"
+                    >
+                        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                    </button>
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 dark:bg-white">
                         <svg
                             className="h-4 w-4 text-white dark:text-zinc-900"
@@ -498,6 +543,23 @@ export default function ChatClient({ user, signOutAction }: Props) {
                 {/* Profile card — top-right */}
                 <ProfileCard user={user} signOutAction={signOutAction} />
             </header>
+
+            <aside
+                id="mobile-conversations"
+                aria-hidden={!isMobileConversationsOpen}
+                className={`absolute bottom-0 left-0 top-14 z-20 w-72 overflow-y-auto border-r border-zinc-200 bg-white p-4 shadow-xl transition-transform duration-300 ease-out dark:border-zinc-800 dark:bg-zinc-900 md:hidden ${isMobileConversationsOpen ? "translate-x-0" : "pointer-events-none -translate-x-full"}`}
+            >
+                    <div className="mb-3 px-3">
+                        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Conversations</h2>
+                    </div>
+                    <ConversationList
+                        conversations={conversations}
+                        isLoading={isConversationsLoading}
+                        error={conversationsError}
+                        selectedConversationId={selectedConversationId}
+                        onSelect={selectConversation}
+                    />
+            </aside>
 
             {/* ── Messages ── */}
             <main className="flex-1 min-h-0 overflow-hidden">
@@ -550,6 +612,21 @@ export default function ChatClient({ user, signOutAction }: Props) {
                                 />
                             )}
                         </div>
+                        <section className="rounded-2xl bg-white p-3 shadow dark:bg-zinc-900">
+                            <div className="mb-2 flex items-center justify-between">
+                                <h2 className="text-sm font-semibold">Conversations</h2>
+                                {!isConversationsLoading && !conversationsError && (
+                                    <span className="text-xs text-zinc-400">{conversations.length}</span>
+                                )}
+                            </div>
+                            <ConversationList
+                                conversations={conversations}
+                                isLoading={isConversationsLoading}
+                                error={conversationsError}
+                                selectedConversationId={selectedConversationId}
+                                onSelect={selectConversation}
+                            />
+                        </section>
                         <div className="flex gap-2.5 rounded-xl border border-emerald-100 bg-emerald-50/70 p-3 text-xs leading-relaxed text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-100">
                             <svg
                                 className="mt-0.5 h-4 w-4 shrink-0"
