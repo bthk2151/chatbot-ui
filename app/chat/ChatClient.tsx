@@ -14,7 +14,7 @@ import type { ConversationSummary } from "@/lib/rag-api";
 
 type Message = {
     id: string;
-    role: "user" | "bot";
+    role: "user" | "assistant";
     content: string;
     attachments: MessageAttachment[];
     timestamp: Date;
@@ -299,7 +299,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
         setMessages([
             {
                 id: "welcome",
-                role: "bot",
+                role: "assistant",
                 content: `Hi, ${user.name.split(" ")[0]}! 👋 I'm your AI assistant. How can I help you today? \n\nPlease attach the relevant file(s) and wait until they show as \`Ready\`. Then, select the file(s) before sending your message. PDFs are recommended for the best results.`,
                 attachments: [],
                 timestamp: new Date(),
@@ -462,12 +462,12 @@ export default function ChatClient({ user, signOutAction }: Props) {
             setMessages((messages) => [...messages, userMessage]);
             setInput("");
             setIsLoading(true);
-            await new Promise((resolve) => window.setTimeout(resolve, 1_000)); // simulate a short delay between the user message and the bot response for better UX
+            await new Promise((resolve) => window.setTimeout(resolve, 1_000)); // simulate a short delay between the user message and the assistant response for better UX
             setMessages((messages) => [
                 ...messages,
                 {
                     id: crypto.randomUUID(),
-                    role: "bot",
+                    role: "assistant",
                     content: "Please upload and select a file before sending a message.",
                     attachments: [],
                     timestamp: new Date(),
@@ -491,14 +491,14 @@ export default function ChatClient({ user, signOutAction }: Props) {
             });
 
             setConversationId(response.conversation_id);
-            const botResponse: Message = {
+            const assistantResponse: Message = {
                 id: crypto.randomUUID(),
-                role: "bot",
+                role: "assistant",
                 content: response.answer,
                 attachments: [],
                 timestamp: new Date(),
             };
-            setMessages((messages) => [...messages, botResponse]);
+            setMessages((messages) => [...messages, assistantResponse]);
         } finally {
             setIsLoading(false);
         }
