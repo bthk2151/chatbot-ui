@@ -579,7 +579,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
             const response = await ragApi.query({
                 user_id: user.email,
                 query: trimmedInput,
-                top_k: 100,
+                top_k: 50,
                 folder_names: Array.from(selectedFileIds),
                 conversation_id: conversationId,
             });
