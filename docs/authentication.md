@@ -63,15 +63,6 @@ deployments in a maintenance window; rolling mismatched keys causes temporary
 five seconds of verifier clock tolerance). HTTPS and server-only tokens reduce
 exposure but bearer tokens can be replayed if stolen.
 
-## Verification
-
-```sh
-npm ci
-npm test
-npm run typecheck
-npm run lint
-npm run build
-```
-
-Tests use ephemeral keys and mocked upstream calls; real Google OAuth and hosted
-FastAPI/database integration should be smoke-tested in the deployment environment.
+After deployment, smoke-test Google login, file upload/status, chat, conversation
+history, and deletion. Requests without a bearer token should return 401; a
+different email in a payload, query, or form should return 403.
