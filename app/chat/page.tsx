@@ -7,7 +7,6 @@ export default async function ChatPage() {
     if (!session) redirect("/");
 
     const { user } = session;
-    console.log(session);
 
     async function handleSignOut() {
         "use server";

@@ -1,6 +1,10 @@
 # chatbot-ui
 Frontend webapp for the Chatbot project
 
+Before running or deploying, configure the server JWT keys and matching Tree-RAG
+settings in [Authentication setup](docs/authentication.md). Existing users must
+sign in again after the authentication rollout.
+
 -
 
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
