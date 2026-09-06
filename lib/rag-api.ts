@@ -31,7 +31,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const ragApi = {
   health: () => request<unknown>("/health"),
   root: () => request<unknown>("/"),
-  login: (input: { id: string; name: string }) => request<UserResponse>("/users/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }),
   uploadFiles: (files: File[], folderName: string, userId: string, metadata?: Record<string, unknown>) => {
     const formData = new FormData();
     files.forEach((file) => formData.append("files", file));
