@@ -30,7 +30,7 @@ export default async function LoginPage() {
               Welcome back
             </h1>
             <p className="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">
-              Sign in to continue to Chatbot
+              Sign in to continue to RAGBot
             </p>
           </div>
 
