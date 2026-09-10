@@ -209,7 +209,7 @@ function ChatBubble({ message, user }: { message: Message; user: UserProps }) {
             <div className={`flex flex-col max-w-[70%] ${isUser ? "items-end" : "items-start"}`}>
                 {/* Sender name */}
                 <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1 px-1">
-                    {isUser ? displayName : "Chatbot"}
+                    {isUser ? displayName : "RAGBot"}
                 </span>
 
                 {/* Bubble — WhatsApp-inspired asymmetric corner */}
@@ -631,7 +631,7 @@ export default function ChatClient({ user, signOutAction }: Props) {
                             />
                         </svg>
                     </div>
-                    <span className="font-semibold text-zinc-900 dark:text-zinc-50">Chatbot</span>
+                    <span className="font-semibold text-zinc-900 dark:text-zinc-50">RAGBot</span>
                 </div>
 
                 {/* Profile card — top-right */}
