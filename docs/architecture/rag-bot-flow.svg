@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">RAG Bot architecture</title>
+  <desc id="desc">The authenticated Next.js UI uploads files and sends questions through a server-side proxy to Tree-RAG, which stores, extracts, embeds, retrieves, and sends grounded context to Gemini.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef2ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#0f172a" flood-opacity=".10"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6366f1"/>
+    </marker>
+    <style>
+      .title { font: 700 52px system-ui, sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 24px system-ui, sans-serif; fill: #475569; }
+      .section { font: 700 22px system-ui, sans-serif; fill: #3730a3; letter-spacing: 1px; }
+      .heading { font: 700 25px system-ui, sans-serif; fill: #0f172a; }
+      .body { font: 400 19px system-ui, sans-serif; fill: #475569; }
+      .small { font: 600 17px system-ui, sans-serif; fill: #4338ca; }
+      .step { font: 700 20px system-ui, sans-serif; fill: #ffffff; }
+      .flow { fill: none; stroke: #6366f1; stroke-width: 5; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <text x="100" y="100" class="title">RAG Bot</text>
+  <text x="100" y="142" class="subtitle">Ask questions grounded in your own documents</text>
+
+  <text x="100" y="220" class="section">USER-FACING APPLICATION</text>
+  <g filter="url(#shadow)">
+    <rect x="100" y="250" width="430" height="220" rx="28" fill="#ffffff"/>
+    <circle cx="165" cy="320" r="34" fill="#e0e7ff"/>
+    <path d="M151 320h28M165 306v28" stroke="#4f46e5" stroke-width="5" stroke-linecap="round"/>
+    <text x="220" y="312" class="heading">chatbot-ui</text>
+    <text x="220" y="344" class="body">Next.js · React · Auth.js</text>
+    <text x="140" y="397" class="body">Sign in · Upload · Select files</text>
+    <text x="140" y="430" class="body">Ask questions · Reopen conversations</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="585" y="250" width="430" height="220" rx="28" fill="#ffffff"/>
+    <circle cx="650" cy="320" r="34" fill="#dcfce7"/>
+    <path d="M637 320l9 9 18-20" fill="none" stroke="#16a34a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="705" y="312" class="heading">Server boundary</text>
+    <text x="705" y="344" class="body">Same-origin API proxy</text>
+    <text x="625" y="397" class="body">Verifies the Auth.js session</text>
+    <text x="625" y="430" class="body">Signs a 5-minute RS256 JWT</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="1070" y="250" width="430" height="220" rx="28" fill="#ffffff"/>
+    <circle cx="1135" cy="320" r="34" fill="#fef3c7"/>
+    <path d="M1121 331h28v-23h-28zM1128 308v-8h14v8" fill="none" stroke="#d97706" stroke-width="4" stroke-linejoin="round"/>
+    <text x="1190" y="312" class="heading">Tree-RAG</text>
+    <text x="1190" y="344" class="body">FastAPI · pgvector · Gemini</text>
+    <text x="1110" y="397" class="body">Processes and retrieves documents</text>
+    <text x="1110" y="430" class="body">Persists conversations and answers</text>
+  </g>
+
+  <path d="M530 360H575" class="flow"/>
+  <path d="M1015 360H1060" class="flow"/>
+  <text x="541" y="335" class="small">Session</text>
+  <text x="1027" y="335" class="small">JWT</text>
+
+  <text x="100" y="555" class="section">DOCUMENT-TO-ANSWER FLOW</text>
+  <path d="M185 665H315M445 665H575M705 665H835M965 665H1095M1225 665H1355" class="flow"/>
+
+  <g>
+    <circle cx="120" cy="665" r="64" fill="#4f46e5"/>
+    <text x="120" y="659" text-anchor="middle" class="step">Upload</text>
+    <text x="120" y="686" text-anchor="middle" class="step">files</text>
+
+    <circle cx="380" cy="665" r="64" fill="#6366f1"/>
+    <text x="380" y="659" text-anchor="middle" class="step">Store</text>
+    <text x="380" y="686" text-anchor="middle" class="step">objects</text>
+
+    <circle cx="640" cy="665" r="64" fill="#7c3aed"/>
+    <text x="640" y="659" text-anchor="middle" class="step">Extract</text>
+    <text x="640" y="686" text-anchor="middle" class="step">&amp; OCR</text>
+
+    <circle cx="900" cy="665" r="64" fill="#8b5cf6"/>
+    <text x="900" y="659" text-anchor="middle" class="step">Chunk</text>
+    <text x="900" y="686" text-anchor="middle" class="step">&amp; embed</text>
+
+    <circle cx="1160" cy="665" r="64" fill="#a855f7"/>
+    <text x="1160" y="659" text-anchor="middle" class="step">Retrieve</text>
+    <text x="1160" y="686" text-anchor="middle" class="step">context</text>
+
+    <circle cx="1420" cy="665" r="64" fill="#c026d3"/>
+    <text x="1420" y="659" text-anchor="middle" class="step">Gemini</text>
+    <text x="1420" y="686" text-anchor="middle" class="step">answer</text>
+  </g>
+
+  <rect x="100" y="790" width="1400" height="62" rx="18" fill="#e0e7ff"/>
+  <text x="800" y="829" text-anchor="middle" class="body">Only ready, selected files enter retrieval · signing keys remain server-side</text>
+</svg>
