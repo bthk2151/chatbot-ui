@@ -4,7 +4,7 @@ RAG Bot is a retrieval-augmented generation application for asking questions abo
 
 [Open the live application](https://chatbot-ui-zeta-eight-78.vercel.app/) · [Tree-RAG backend](https://github.com/Whitebread88/Tree-RAG#readme)
 
-![RAG Bot architecture](docs/architecture/rag-bot-flow.svg)
+![RAG Bot architecture](docs/architecture/rag-chat-flow.webp)
 
 ## How it works
 
